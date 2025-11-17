@@ -37,21 +37,16 @@ class Controller:
     def __init__(self, config: OmegaConf) -> None:
         self.config = config
         self.current_mode = "stance"
-        self.policy_mode = "stance"
+        self.target_mode = "locomotion"
         self.mode_cfg = OmegaConf.select(self.config, "locomotion")
         self.frame_stack = int(config.frame_stack)
-        
-        # self.motion_file = str(Path(get_original_cwd()) / config.motion_file)
-        # self.motion_len = get_motion_len(self.motion_file)
 
         self.remote_controller = RemoteController()
 
         # Initialize the policy network
-        # self.policy_path = str(Path(get_original_cwd()) / self.mode_cfg.policy_path)
         self.policy_path = None
-        # self.policy = torch.jit.load(config.policy_path)
-        # self.policy = ort.InferenceSession(self.policy_path)
         self.policy = None
+        
         # Initializing process variables
         self.num_actions = len(config.dof29_joint2motor_idx)
         self.qj = np.zeros(self.num_actions, dtype=np.float32)
@@ -247,34 +242,27 @@ class Controller:
             self.switch_mode_start_pos[i] = self.low_state.motor_state[self.config.dof29_joint2motor_idx[i]].q
 
         if self.current_mode == "mimic" or self.current_mode == "stance":
-            self.current_mode = "locomotion"
-            self.mode_cfg = OmegaConf.select(self.config, "locomotion")
+            self.target_mode = "locomotion"
+            self.current_mode = self.target_mode
+            self.target_cfg = OmegaConf.select(self.config, "locomotion")
+            self.mode_cfg = self.target_cfg
         elif self.current_mode == "locomotion":
-            self.current_mode = "mimic"
-            self.mode_cfg = OmegaConf.select(self.config, "mimic")
-            self.motion_len = get_motion_len(self.motion_file)
-        #     self.policy_mode = "locomotion"
-        #     print("Interpolating to mimic init pose...")
-        # else:
-        #     self.policy_mode = "locomotion"
-        #     self.current_mode = "locomotion"
-        #     self.mode_cfg = OmegaConf.select(self.config, "locomotion")
-        #     print("Interpolating to locomotion init pose...")
+            self.target_mode = "mimic"
+            self.target_cfg = OmegaConf.select(self.config, "mimic")
 
         policy_path = str(Path(get_original_cwd()) / self.mode_cfg.policy_path)
         self.policy = ort.InferenceSession(policy_path)
         self.action = np.zeros(self.mode_cfg.num_output_actions, dtype=np.float32)
         self.default_angles = np.array(list(self.mode_cfg.default_angles), dtype=np.float32)
         self.init_history()
-        self.mimic_finish = False
 
-        self.is_transitioning = False   
+        self.mimic_finish = False
+        self.is_transitioning = True   
         self.counter = 0
         self.transition_counter = 0
 
     def complete_switch_mode(self):
         self.current_mode = "mimic"
-        self.policy_mode = "mimic"
         self.mode_cfg = OmegaConf.select(self.config, "mimic")
         self.motion_file = str(Path(get_original_cwd()) / self.mode_cfg.motion_file)
         self.motion_len = get_motion_len(self.motion_file)
@@ -292,15 +280,8 @@ class Controller:
         total_time = 5.0
         num_steps = int(total_time / self.config.control_dt)
         alpha = min(self.transition_counter / num_steps, 1.0)
-        
-        # if self.policy_mode == "locomotion" and self.current_mode == "locomotion":
-        #     target_cfg = OmegaConf.select(self.config, "mimic")
-        # else:
-        #     target_cfg = self.mode_cfg
-        
-        target_pos = np.array(self.mode_cfg.init_pos, dtype=np.float32)
-        
-        # 插值计算
+
+        target_pos = np.array(self.target_cfg.init_pos, dtype=np.float32)
         interpolated_pos = self.switch_mode_start_pos * (1 - alpha) + target_pos * alpha
         interpolated_action = (interpolated_pos - self.mode_cfg.default_angles) / self.config.action_scale
         
@@ -308,11 +289,11 @@ class Controller:
         
         # 检查是否完成
         if self.transition_counter >= num_steps:
-            if self.policy_mode == "locomotion" and self.current_mode == "locomotion":
+            if self.target_mode == "mimic" and self.current_mode == "locomotion":
                 self.complete_switch_mode()
-            else:
-                self.is_transitioning = False
-                print("\n[Switch] Transition complete")
+            # else:
+            #     self.is_transitioning = False
+            #     print("\n[Switch] Transition complete")
         
         return interpolated_action
 
@@ -498,9 +479,9 @@ class Controller:
         self.all_action = np.zeros(len(self.config.dof29_joint2motor_idx), dtype=np.float32)
         mask = np.array(self.mode_cfg.output_action_mask)
         self.all_action[mask] = self.action
-        # if self.is_transitioning:
-        #     interpolated_actions = self.get_body_interpolation()
-        #     self.all_action[~mask] = interpolated_actions[~mask]    
+        if self.is_transitioning:
+            interpolated_actions = self.get_body_interpolation()
+            self.all_action[~mask] = interpolated_actions[~mask]    
         
         # if self.need_interpolation and not self.transition_is_complete:
         #     # interpolate to the default pos
