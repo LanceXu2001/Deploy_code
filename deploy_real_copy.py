@@ -46,7 +46,7 @@ class Controller:
         # Initialize the policy network
         self.policy_path = None
         self.policy = None
-        
+
         # Initializing process variables
         self.num_actions = len(config.dof29_joint2motor_idx)
         self.qj = np.zeros(self.num_actions, dtype=np.float32)
@@ -104,7 +104,7 @@ class Controller:
         self.start_time = time.time()
 
         # Initialize histories for each observation type
-        # self.init_history()
+        self.init_history(first_init=True)
         
         self.max_steps = 10  # ← 固定步数
         self.data_buffer = []
@@ -190,40 +190,68 @@ class Controller:
             time.sleep(self.config.control_dt)
         self.start_switch_mode()
 
-    def init_history(self):
+    def init_history(self,first_init=False):
         # Initialize histories for each observation type
-        self.history = {
-            "action": deque(maxlen=self.frame_stack-1),
-            "omega": deque(maxlen=self.frame_stack-1),
-            "qj": deque(maxlen=self.frame_stack-1),
-            "dqj": deque(maxlen=self.frame_stack-1),
-            "gravity_orientation": deque(maxlen=self.frame_stack-1),
-            "ref_motion_phase": deque(maxlen=self.frame_stack-1),
-            "command_lin_vel": deque(maxlen=self.frame_stack-1),
-            "command_ang_vel": deque(maxlen=self.frame_stack-1),
-            "command_base_height": deque(maxlen=self.frame_stack-1),
-            "command_stand": deque(maxlen=self.frame_stack-1),
-            "ref_upper_body_pose": deque(maxlen=self.frame_stack-1),
-            "sin_phase": deque(maxlen=self.frame_stack-1),
-            "cos_phase": deque(maxlen=self.frame_stack-1),
-        }
+        if first_init:
+            self.history = {
+                "ref_motion_phase": deque(maxlen=self.frame_stack-1),
+                "command_lin_vel": deque(maxlen=self.frame_stack-1),
+                "command_ang_vel": deque(maxlen=self.frame_stack-1),
+                "command_base_height": deque(maxlen=self.frame_stack-1),
+                "command_stand": deque(maxlen=self.frame_stack-1),
+                "ref_upper_body_pose": deque(maxlen=self.frame_stack-1),
+                "sin_phase": deque(maxlen=self.frame_stack-1),
+                "cos_phase": deque(maxlen=self.frame_stack-1),
+            }
 
-        for _ in range(self.frame_stack - 1):
-            for key in self.history:
-                if key in ["qj", "dqj"]:
-                    self.history[key].append(torch.zeros(1, self.mode_cfg.num_joints_obs, dtype=torch.float))
-                elif key in ["omega", "gravity_orientation"]:
-                    self.history[key].append(torch.zeros(1, 3, dtype=torch.float))
-                elif key in ["ref_motion_phase", "command_base_height", "command_stand","command_ang_vel" ,"sin_phase", "cos_phase"]:
-                    self.history[key].append(torch.zeros(1, 1, dtype=torch.float))
-                elif key == "command_lin_vel":
-                    self.history[key].append(torch.zeros(1, 2, dtype=torch.float))
-                elif key == "ref_upper_body_pose":
-                    self.history[key].append(torch.zeros(1, 17, dtype=torch.float))
-                elif key == "action":
-                    self.history[key].append(torch.zeros(1, self.mode_cfg.num_output_actions, dtype=torch.float))
-                else:
-                    raise ValueError(f"Not Implement: {key}")
+            self.abs_history = {
+                "action": deque(maxlen=self.frame_stack-1),
+                "omega": deque(maxlen=self.frame_stack-1),
+                "qj": deque(maxlen=self.frame_stack-1),
+                "dqj": deque(maxlen=self.frame_stack-1),
+                "gravity_orientation": deque(maxlen=self.frame_stack-1),
+            }
+
+        
+            for _ in range(self.frame_stack - 1):
+                for key in self.history:
+                    if key in ["ref_motion_phase", "command_base_height", "command_stand","command_ang_vel" ,"sin_phase", "cos_phase"]:
+                        self.history[key].append(torch.zeros(1, 1, dtype=torch.float))
+                    elif key == "command_lin_vel":
+                        self.history[key].append(torch.zeros(1, 2, dtype=torch.float))
+                    elif key == "ref_upper_body_pose":
+                        self.history[key].append(torch.zeros(1, 17, dtype=torch.float))
+                    else:
+                        raise ValueError(f"Not Implement: {key}")
+                for key in self.abs_history:
+                    if key in ["qj", "dqj"]:
+                        self.abs_history[key].append(torch.zeros(1, 29, dtype=torch.float))
+                    elif key in ["omega", "gravity_orientation"]:
+                        self.abs_history[key].append(torch.zeros(1, 3, dtype=torch.float))
+                    elif key == "action":
+                        self.abs_history[key].append(torch.zeros(1, 29, dtype=torch.float))
+                    else:
+                        raise ValueError(f"Not Implement: {key}")
+        else:
+            for _ in range(self.frame_stack - 1):
+                for key in self.history:
+                    if key in ["ref_motion_phase", "command_base_height", "command_stand","command_ang_vel" ,"sin_phase", "cos_phase"]:
+                        self.history[key].append(torch.zeros(1, 1, dtype=torch.float))
+                    elif key == "command_lin_vel":
+                        self.history[key].append(torch.zeros(1, 2, dtype=torch.float))
+                    elif key == "ref_upper_body_pose":
+                        self.history[key].append(torch.zeros(1, 17, dtype=torch.float))
+                    else:
+                        raise ValueError(f"Not Implement: {key}")
+                for key in self.abs_history:
+                    # if key in ["qj", "dqj"]:
+                    #     self.abs_history[key].append(torch.zeros(1, 29, dtype=torch.float))
+                    # elif key in ["omega", "gravity_orientation"]:
+                    #     self.abs_history[key].append(torch.zeros(1, 3, dtype=torch.float))
+                    if key == "action":
+                        self.abs_history[key].append(torch.zeros(1, 29, dtype=torch.float))
+                    # else:
+                    #     raise ValueError(f"Not Implement: {key}")
 
     def check_mode_switch(self):
         if self.remote_controller.button[KeyMap.B] == 1 and not self.mode_switch_requested:
@@ -254,7 +282,7 @@ class Controller:
         self.policy = ort.InferenceSession(policy_path)
         self.action = np.zeros(self.mode_cfg.num_output_actions, dtype=np.float32)
         self.default_angles = np.array(list(self.mode_cfg.default_angles), dtype=np.float32)
-        self.init_history()
+        # self.init_history()
 
         self.mimic_finish = False
         self.is_transitioning = True   
@@ -265,7 +293,7 @@ class Controller:
         self.current_mode = "mimic"
         self.mode_cfg = OmegaConf.select(self.config, "mimic")
         self.motion_file = str(Path(get_original_cwd()) / self.mode_cfg.motion_file)
-        self.motion_len = get_motion_len(self.motion_file)
+        self.motion_len = get_motion_len(self.motion_file) * 3.0
         
         policy_path = str(Path(get_original_cwd()) / self.mode_cfg.policy_path)
         self.policy = ort.InferenceSession(policy_path)
@@ -277,7 +305,7 @@ class Controller:
         self.counter = 0
     
     def get_body_interpolation(self):
-        total_time = 5.0
+        total_time = 2.0
         num_steps = int(total_time / self.config.control_dt)
         alpha = min(self.transition_counter / num_steps, 1.0)
 
@@ -315,17 +343,28 @@ class Controller:
             # quat, ang_vel = transform_imu_data(waist_yaw=waist_yaw, waist_yaw_omega=waist_yaw_omega, imu_quat=quat, imu_omega=ang_vel)
 
         # Build history tensors
-        action_hist_tensor = torch.cat([self.history["action"][i] for i in range(self.frame_stack-1)], dim=1)
-        omega_hist_tensor = torch.cat([self.history["omega"][i] for i in range(self.frame_stack-1)], dim=1)
-        qj_hist_tensor = torch.cat([self.history["qj"][i] for i in range(self.frame_stack-1)], dim=1)
-        dqj_hist_tensor = torch.cat([self.history["dqj"][i] for i in range(self.frame_stack-1)], dim=1)
         action_mask = np.array(self.mode_cfg.output_action_mask)
-        # obs_joint_mask = np.array(self.mode_cfg.obs_joint_mask)
-        # action_hist_tensor = torch.cat([self.history["action"][i][:, action_mask] for i in range(self.frame_stack-1)], dim=1)
-        # omega_hist_tensor = torch.cat([self.history["omega"][i] for i in range(self.frame_stack-1)], dim=1)
-        # qj_hist_tensor = torch.cat([self.history["qj"][i][:, obs_joint_mask] for i in range(self.frame_stack-1)], dim=1)
-        # dqj_hist_tensor = torch.cat([self.history["dqj"][i][:, obs_joint_mask] for i in range(self.frame_stack-1)], dim=1)
-        gravity_orientation_hist_tensor = torch.cat([self.history["gravity_orientation"][i] for i in range(self.frame_stack-1)], dim=1)
+        obs_joint_mask = np.array(self.mode_cfg.obs_joint_mask)
+        # Normalize action history: for each past frame, subtract current default_angles and divide by action_scale
+        # This ensures historical actions use the same reference and scale as the current frame.
+        # Use index array for masking to make selection explicit and robust.
+        default_pos = torch.from_numpy(self.default_angles).unsqueeze(0).float()
+        action_mask_idx = np.where(action_mask)[0]
+        action_hist_tensor = torch.cat([
+            (self.abs_history["action"][i] - default_pos)[:, action_mask_idx] / float(self.config.action_scale)
+            for i in range(self.frame_stack - 1)], dim=1)
+        qj_hist_tensor = torch.cat([
+            (self.abs_history["qj"][i] - default_pos)[:, obs_joint_mask] * self.config.dof_pos_scale
+            for i in range(self.frame_stack - 1)], dim=1)
+        dqj_hist_tensor = torch.cat([
+            self.abs_history["dqj"][i][:, obs_joint_mask] * self.config.dof_vel_scale 
+            for i in range(self.frame_stack-1)], dim=1)
+        
+        # action_hist_tensor = torch.cat([self.abs_history["action"][i][:, action_mask_idx] for i in range(self.frame_stack-1)], dim=1)
+        omega_hist_tensor = torch.cat([self.abs_history["omega"][i] for i in range(self.frame_stack-1)], dim=1)
+        # qj_hist_tensor = torch.cat([self.abs_history["qj"][i][:, obs_joint_mask] for i in range(self.frame_stack-1)], dim=1)
+        # dqj_hist_tensor = torch.cat([self.abs_history["dqj"][i][:, obs_joint_mask] for i in range(self.frame_stack-1)], dim=1)
+        gravity_orientation_hist_tensor = torch.cat([self.abs_history["gravity_orientation"][i] for i in range(self.frame_stack-1)], dim=1)
         ref_motion_phase_hist_tensor = torch.cat([self.history["ref_motion_phase"][i] for i in range(self.frame_stack-1)], dim=1)
         command_lin_vel_hist_tensor = torch.cat([self.history["command_lin_vel"][i] for i in range(self.frame_stack-1)], dim=1)
         command_ang_vel_hist_tensor = torch.cat([self.history["command_ang_vel"][i] for i in range(self.frame_stack-1)], dim=1)
@@ -354,7 +393,7 @@ class Controller:
                 command_lin_vel_hist_tensor,
                 command_stand_hist_tensor,
                 cos_phase_hist_tensor,
-                qj_hist_tensor,
+                qj_hist_tensor, 
                 dqj_hist_tensor,
                 gravity_orientation_hist_tensor,
                 ref_upper_body_pose_hist_tensor,
@@ -365,14 +404,13 @@ class Controller:
         gravity_orientation = get_gravity_orientation(quat)
         qj_obs = self.qj.copy()
         dqj_obs = self.dqj.copy()
-        qj_obs = (qj_obs - self.default_angles) * self.config.dof_pos_scale
-        dqj_obs = dqj_obs * self.config.dof_vel_scale
+        scale_qj = (qj_obs - self.default_angles) * self.config.dof_pos_scale
+        scale_dqj = dqj_obs * self.config.dof_vel_scale
         ang_vel = ang_vel * self.config.ang_vel_scale
 
         #select observed joints if input joint dim is less than 29
-        if self.mode_cfg.num_joints_obs < len(self.config.dof29_joint2motor_idx):
-            qj_obs = qj_obs[np.array(self.mode_cfg.obs_joint_mask)]
-            dqj_obs = dqj_obs[np.array(self.mode_cfg.obs_joint_mask)]
+        qj_obs = scale_qj[np.array(self.mode_cfg.obs_joint_mask)]
+        dqj_obs = scale_dqj[np.array(self.mode_cfg.obs_joint_mask)]
 
         num_actions = self.mode_cfg.num_output_actions
         # put into observation buffer
@@ -382,7 +420,7 @@ class Controller:
             # if ref_motion_phase >= 1:
             #     self.mimic_finish = True
             curr_obs = np.zeros(self.mode_cfg.num_obs, dtype=np.float32)
-            curr_obs[: num_actions] = self.action
+            curr_obs[: num_actions] = self.all_action[action_mask]
             curr_obs[num_actions: num_actions + 3] = ang_vel
             curr_obs[num_actions + 3: 2 * num_actions + 3] = qj_obs
             curr_obs[2 * num_actions + 3: 3 * num_actions + 3] = dqj_obs
@@ -397,15 +435,8 @@ class Controller:
                 curr_obs_tensor[:, 3 * num_actions + 3:]], 
                 dim=1
                 )
-            
 
-            self.history["action"].appendleft(curr_obs_tensor[:, :num_actions])
-            self.history["omega"].appendleft(curr_obs_tensor[:, num_actions: num_actions + 3])
-            self.history["qj"].appendleft(curr_obs_tensor[:, num_actions + 3: 2 * num_actions + 3])
-            self.history["dqj"].appendleft(curr_obs_tensor[:, 2 * num_actions + 3: 3 * num_actions + 3])
-            self.history["gravity_orientation"].appendleft(curr_obs_tensor[:, 3 * num_actions + 3: 3 * num_actions + 6])
             self.history["ref_motion_phase"].appendleft(curr_obs_tensor[:, -1].unsqueeze(0))
-
 
         elif self.current_mode == "locomotion":
             ang_vel_command = np.array([[0.0]])
@@ -416,7 +447,7 @@ class Controller:
             ref_upper_dof_pose = np.array([0.,0.,0.,0.,0.3,0.,1.,0.,0.,0.,0.,-0.3,0.,1.,0.,0.,0.])
             sin_phase = np.array([[0.0]])
             curr_obs = np.zeros(self.mode_cfg.num_obs, dtype=np.float32)
-            curr_obs[:num_actions] = self.action
+            curr_obs[:num_actions] = self.all_action[action_mask]
             curr_obs[num_actions: num_actions + 3] = ang_vel
             curr_obs[num_actions + 3] = ang_vel_command #default ang_vel_command
             curr_obs[num_actions + 4] = base_height_command #default base_height_command
@@ -436,24 +467,19 @@ class Controller:
                 curr_obs_tensor[:, num_actions + 9 + 2*29:]], 
                 dim=1
                 )
-            self.history["action"].appendleft(curr_obs_tensor[:, :num_actions])
-            self.history["omega"].appendleft(curr_obs_tensor[:, num_actions: num_actions + 3])
+            
             self.history["command_ang_vel"].appendleft(curr_obs_tensor[:, num_actions + 3].unsqueeze(0))
             self.history["command_base_height"].appendleft(curr_obs_tensor[:, num_actions + 4].unsqueeze(0))
             self.history["command_lin_vel"].appendleft(curr_obs_tensor[:,num_actions + 5:num_actions + 7])
             self.history["command_stand"].appendleft(curr_obs_tensor[:, num_actions + 7].unsqueeze(0))
             self.history["cos_phase"].appendleft(curr_obs_tensor[:, num_actions + 8].unsqueeze(0))
-            self.history["qj"].appendleft(curr_obs_tensor[:, num_actions + 9:num_actions + 9 + 29])
-            self.history["dqj"].appendleft(curr_obs_tensor[:, num_actions + 9 + 29:num_actions + 9 + 2*29])
-            self.history["gravity_orientation"].appendleft(curr_obs_tensor[:, num_actions + 9 + 2*29:num_actions + 12 + 2*29])
             self.history["ref_upper_body_pose"].appendleft(curr_obs_tensor[:, num_actions + 12 + 2*29:num_actions + 29 + 2*29])
             self.history["sin_phase"].appendleft(curr_obs_tensor[:, num_actions + 29 + 2*29].unsqueeze(0))
         
-        # self.history["action"].appendleft(torch.from_numpy(self.all_action).unsqueeze(0))
-        # self.history["omega"].appendleft(torch.from_numpy(ang_vel).unsqueeze(0))
-        # self.history["qj"].appendleft(torch.from_numpy(self.qj).unsqueeze(0))
-        # self.history["dqj"].appendleft(torch.from_numpy(self.dqj).unsqueeze(0))
-        # self.history["gravity_orientation"].appendleft(torch.from_numpy(gravity_orientation).unsqueeze(0))
+        self.abs_history["omega"].appendleft(torch.from_numpy(ang_vel))
+        self.abs_history["qj"].appendleft(torch.from_numpy(self.qj.copy()).unsqueeze(0))
+        self.abs_history["dqj"].appendleft(torch.from_numpy(self.dqj.copy()).unsqueeze(0))
+        self.abs_history["gravity_orientation"].appendleft(torch.from_numpy(gravity_orientation).unsqueeze(0))
 
     def run(self):
 
@@ -466,14 +492,8 @@ class Controller:
 
         # Get policy's infered action
         input_name = self.policy.get_inputs()[0].name
-        outputs = self.policy.run(None, {input_name: self.obs_buf.numpy()})
+        outputs = self.policy.run(None, {input_name: self.obs_buf.numpy().astype(np.float32)})
         self.action = outputs[0].squeeze()
-        
-        # full_action = np.zeros(len(self.config.dof29_joint2motor_idx), dtype=np.float32)
-        # mask = np.array(self.mode_cfg.output_action_mask)
-        # full_action[mask] = self.action
-        # target_dof_pos = self.default_angles + full_action * self.config.action_scale
-        # if self.need_interpolation == True and self.mimic_finish == True:
 
         # Get interpolated actions during mode switch
         self.all_action = np.zeros(len(self.config.dof29_joint2motor_idx), dtype=np.float32)
@@ -481,23 +501,9 @@ class Controller:
         self.all_action[mask] = self.action
         if self.is_transitioning:
             interpolated_actions = self.get_body_interpolation()
-            self.all_action[~mask] = interpolated_actions[~mask]    
-        
-        # if self.need_interpolation and not self.transition_is_complete:
-        #     # interpolate to the default pos
-        #     total_time = 5
-        #     num_step = int(total_time / self.config.control_dt)
-        #     alpha = self.counter / num_step
-        #     target_pos = np.array(self.mode_cfg.init_pos)
-        #     interpolated_actions = self.send_interpolate_action(self.switch_mode_start_pos, target_pos, alpha)
-        #     interpolated_actions -= target_pos
-        #     interpolated_actions /= self.config.action_scale
-        #     self.all_action[~mask] = interpolated_actions[~mask]
-        #     if self.counter >= num_step:
-        #         self.need_interpolation = False
-        #         self.transition_is_complete = True
-
+            self.all_action[~mask] = interpolated_actions[~mask]   
         target_dof_pos = self.default_angles + self.all_action * self.config.action_scale 
+        self.abs_history["action"].appendleft(torch.from_numpy(target_dof_pos.copy()).unsqueeze(0))
 
         # Build low cmd
         self.build_cmd(target_dof_pos,self.mode_cfg.kps,self.mode_cfg.kds) #TODO: adapt to different policy
