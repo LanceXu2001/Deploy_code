@@ -52,7 +52,7 @@ class Controller:
         self.qj = np.zeros(self.num_actions, dtype=np.float32)
         self.dqj = np.zeros(self.num_actions, dtype=np.float32)
         self.all_action = np.zeros(self.num_actions, dtype=np.float32)
-        self.action = np.zeros(self.num_actions, dtype=np.float32)
+        self.old_action = np.zeros(self.num_actions, dtype=np.float32)
         self.target_dof_pos = np.array(config.default_angles, dtype=np.float32)
         # self.obs = np.zeros(config.num_obs, dtype=np.float32)
         self.counter = 0
@@ -293,7 +293,7 @@ class Controller:
         self.current_mode = "mimic"
         self.mode_cfg = OmegaConf.select(self.config, "mimic")
         self.motion_file = str(Path(get_original_cwd()) / self.mode_cfg.motion_file)
-        self.motion_len = get_motion_len(self.motion_file) * 3.0
+        self.motion_len = get_motion_len(self.motion_file)
         
         policy_path = str(Path(get_original_cwd()) / self.mode_cfg.policy_path)
         self.policy = ort.InferenceSession(policy_path)
@@ -415,7 +415,18 @@ class Controller:
         num_actions = self.mode_cfg.num_output_actions
         # put into observation buffer
         if self.current_mode == "mimic" and self.mimic_finish == False:
-            ref_motion_phase = ((self.counter * self.config.control_dt) % self.motion_len) / self.motion_len
+            t = self.counter * self.config.control_dt
+            t_slow = 0.5
+            slow_ratio = 0.5  # 前0.5秒只跑40%的速度
+
+            if t < t_slow:
+                t_virtual = t * slow_ratio
+            else:
+                # 把前 0.5 秒“少走”的 0.25 秒补上，并继续正常速度
+                t_virtual = (t_slow * slow_ratio) + (t - t_slow)
+
+            ref_motion_phase = ((t_virtual) % self.motion_len) / self.motion_len
+            print("ref_motion_phase:", ref_motion_phase)
             # ref_motion_phase = (self.counter * self.config.control_dt) / self.motion_len
             # if ref_motion_phase >= 1:
             #     self.mimic_finish = True
@@ -440,7 +451,7 @@ class Controller:
 
         elif self.current_mode == "locomotion":
             ang_vel_command = np.array([[0.0]])
-            base_height_command = np.array([[0.78]]) * 2
+            base_height_command = np.array([[1.0]]) * 2
             lin_vel_command = np.array([[0.0, 0.0]])
             stand_command = np.array([[0]])  # default stand command
             cos_phase = np.array([[1.]])
@@ -501,7 +512,12 @@ class Controller:
         self.all_action[mask] = self.action
         if self.is_transitioning:
             interpolated_actions = self.get_body_interpolation()
-            self.all_action[~mask] = interpolated_actions[~mask]   
+            self.all_action[~mask] = interpolated_actions[~mask]
+
+        if self.current_mode=="mimic" and self.counter < 5:
+            self.old_action = self.old_action * 0.9 + self.all_action * 0.1
+            self.all_action = self.old_action
+
         target_dof_pos = self.default_angles + self.all_action * self.config.action_scale 
         self.abs_history["action"].appendleft(torch.from_numpy(target_dof_pos.copy()).unsqueeze(0))
 
