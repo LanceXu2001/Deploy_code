@@ -232,26 +232,6 @@ class Controller:
                         self.abs_history[key].append(torch.zeros(1, 29, dtype=torch.float))
                     else:
                         raise ValueError(f"Not Implement: {key}")
-        else:
-            for _ in range(self.frame_stack - 1):
-                for key in self.history:
-                    if key in ["ref_motion_phase", "command_base_height", "command_stand","command_ang_vel" ,"sin_phase", "cos_phase"]:
-                        self.history[key].append(torch.zeros(1, 1, dtype=torch.float))
-                    elif key == "command_lin_vel":
-                        self.history[key].append(torch.zeros(1, 2, dtype=torch.float))
-                    elif key == "ref_upper_body_pose":
-                        self.history[key].append(torch.zeros(1, 17, dtype=torch.float))
-                    else:
-                        raise ValueError(f"Not Implement: {key}")
-                for key in self.abs_history:
-                    if key in ["qj", "dqj"]:
-                        self.abs_history[key].append(torch.zeros(1, 29, dtype=torch.float))
-                    elif key in ["omega", "gravity_orientation"]:
-                        self.abs_history[key].append(torch.zeros(1, 3, dtype=torch.float))
-                    elif key == "action":
-                        self.abs_history[key].append(torch.zeros(1, 29, dtype=torch.float))
-                    # else:
-                    #     raise ValueError(f"Not Implement: {key}")
 
     def check_mode_switch(self):
         if self.remote_controller.button[KeyMap.B] == 1 and not self.mode_switch_requested:
@@ -281,7 +261,6 @@ class Controller:
             self.policy = ort.InferenceSession(policy_path)
             self.action = np.zeros(self.mode_cfg.num_output_actions, dtype=np.float32)
             self.default_angles = np.array(list(self.mode_cfg.default_angles), dtype=np.float32)
-            # self.init_history()
             
             self.mimic_finish = False
         elif self.current_mode == "locomotion":
@@ -290,7 +269,6 @@ class Controller:
             self.target_cfg = OmegaConf.select(self.config, "mimic")
 
         self.is_transitioning = True   
-        # self.counter = 0
         self.transition_counter = 0
 
     def complete_switch_mode(self):
@@ -309,7 +287,6 @@ class Controller:
         self.action = np.zeros(self.mode_cfg.num_output_actions, dtype=np.float32)
         self.default_angles = np.array(list(self.mode_cfg.default_angles), dtype=np.float32)
         # self.init_history()
-        # self.mimic_finish = False
         self.is_transitioning = False
         self.counter = 0
     
@@ -348,9 +325,6 @@ class Controller:
         # Build history tensors
         action_mask = np.array(self.mode_cfg.output_action_mask)
         obs_joint_mask = np.array(self.mode_cfg.obs_joint_mask)
-        # Normalize action history: for each past frame, subtract current default_angles and divide by action_scale
-        # This ensures historical actions use the same reference and scale as the current frame.
-        # Use index array for masking to make selection explicit and robust.
         default_pos = torch.from_numpy(self.default_angles).unsqueeze(0).float()
         action_mask_idx = np.where(action_mask)[0]
         action_hist_tensor = torch.cat([
@@ -376,8 +350,20 @@ class Controller:
         ref_upper_body_pose_hist_tensor = torch.cat([self.history["ref_upper_body_pose"][i] for i in range(self.frame_stack-1)], dim=1)
         sin_phase_hist_tensor = torch.cat([self.history["sin_phase"][i] for i in range(self.frame_stack-1)], dim=1)
         cos_phase_hist_tensor = torch.cat([self.history["cos_phase"][i] for i in range(self.frame_stack-1)], dim=1)
+    
+        # create observation #TODO: adapt to different policy obs scale
+        gravity_orientation = get_gravity_orientation(quat)
+        qj_obs = self.qj.copy()
+        dqj_obs = self.dqj.copy()
+        scale_qj = (qj_obs - self.default_angles) * self.config.dof_pos_scale
+        scale_dqj = dqj_obs * self.config.dof_vel_scale
+        ang_vel = ang_vel * self.config.ang_vel_scale
 
-        # 2. Concatenate all parts into a single observation tensor
+        #select observed joints
+        qj_obs = scale_qj[np.array(self.mode_cfg.obs_joint_mask)]
+        dqj_obs = scale_dqj[np.array(self.mode_cfg.obs_joint_mask)]
+        num_actions = self.mode_cfg.num_output_actions
+        
         if self.current_mode == "mimic" and self.target_mode == "mimic":
             obs_hist = torch.cat([
                 action_hist_tensor, #23*4
@@ -387,6 +373,41 @@ class Controller:
                 gravity_orientation_hist_tensor, #3*4
                 ref_motion_phase_hist_tensor #1*4
             ], dim=1)
+
+            
+            ref_motion_phase = (self.counter * self.config.control_dt) / self.motion_len
+
+            #after 95% of the motion, finish mimic
+            if ref_motion_phase >= 0.95:
+                self.mimic_finish = True
+
+            # put into observation buffer
+            curr_obs = np.zeros(self.mode_cfg.num_obs, dtype=np.float32)
+            curr_obs[: num_actions] = self.all_action[action_mask]
+            curr_obs[num_actions: num_actions + 3] = ang_vel
+            curr_obs[num_actions + 3: 2 * num_actions + 3] = qj_obs
+            curr_obs[2 * num_actions + 3: 3 * num_actions + 3] = dqj_obs
+            curr_obs[3 * num_actions + 3: 3 * num_actions + 6] = gravity_orientation
+            curr_obs[6 + 3 * num_actions] = ref_motion_phase
+            curr_obs_tensor = torch.from_numpy(curr_obs).unsqueeze(0)
+
+            self.obs_buf = torch.cat([
+                curr_obs_tensor[:, :3 * num_actions + 3], 
+                obs_hist, 
+                curr_obs_tensor[:, 3 * num_actions + 3:]], 
+                dim=1
+                )
+            # if self.counter <= 1:
+            #     print("action_obs:", self.all_action[action_mask])
+            #     print("ang_vel_obs:", ang_vel)
+            #     print("qj_obs:", qj_obs)
+            #     print("dqj_obs:", dqj_obs)
+            #     print("gravity_orientation:", gravity_orientation)
+            #     print("ref_motion_phase:", ref_motion_phase)
+            #     print("obs_hist:", obs_hist)
+
+            self.history["ref_motion_phase"].appendleft(curr_obs_tensor[:, -1].unsqueeze(0))
+
         elif self.current_mode == "locomotion" or self.target_mode == "locomotion":
             obs_hist = torch.cat([
                 action_hist_tensor,
@@ -402,60 +423,9 @@ class Controller:
                 ref_upper_body_pose_hist_tensor,
                 sin_phase_hist_tensor,
             ], dim=1)
-    
-        # create observation #TODO: adapt to different policy obs scale
-        gravity_orientation = get_gravity_orientation(quat)
-        qj_obs = self.qj.copy()
-        dqj_obs = self.dqj.copy()
-        scale_qj = (qj_obs - self.default_angles) * self.config.dof_pos_scale
-        scale_dqj = dqj_obs * self.config.dof_vel_scale
-        ang_vel = ang_vel * self.config.ang_vel_scale
 
-        #select observed joints
-        qj_obs = scale_qj[np.array(self.mode_cfg.obs_joint_mask)]
-        dqj_obs = scale_dqj[np.array(self.mode_cfg.obs_joint_mask)]
-
-        num_actions = self.mode_cfg.num_output_actions
-        
-        if self.current_mode == "mimic" and self.target_mode == "mimic":
-            t = self.counter * self.config.control_dt
-            t_slow = 0.5
-            slow_ratio = 0.1  # 前0.5秒只跑40%的速度
-
-            if t < t_slow:
-                t_virtual = t * slow_ratio
-            else:
-                # 把前 0.5 秒“少走”的 0.25 秒补上，并继续正常速度
-                t_virtual = (t_slow * slow_ratio) + (t - t_slow)
-            ref_motion_phase = ((t_virtual) % self.motion_len) / self.motion_len
-
-            #after 95% of the motion, finish mimic
-            if t_virtual >= 0.95*self.motion_len:
-                self.mimic_finish = True
-
-            # put into observation buffer
-            curr_obs = np.zeros(self.mode_cfg.num_obs, dtype=np.float32)
-            curr_obs[: num_actions] = self.all_action[action_mask]
-            curr_obs[num_actions: num_actions + 3] = ang_vel
-            curr_obs[num_actions + 3: 2 * num_actions + 3] = qj_obs
-            curr_obs[2 * num_actions + 3: 3 * num_actions + 3] = dqj_obs
-            curr_obs[3 * num_actions + 3: 3 * num_actions + 6] = gravity_orientation
-            curr_obs[6 + 3 * num_actions] = ref_motion_phase
-
-            curr_obs_tensor = torch.from_numpy(curr_obs).unsqueeze(0)
-
-            self.obs_buf = torch.cat([
-                curr_obs_tensor[:, :3 * num_actions + 3], 
-                obs_hist, 
-                curr_obs_tensor[:, 3 * num_actions + 3:]], 
-                dim=1
-                )
-
-            self.history["ref_motion_phase"].appendleft(curr_obs_tensor[:, -1].unsqueeze(0))
-
-        elif self.current_mode == "locomotion" or self.target_mode == "locomotion":
             ang_vel_command = np.array([[0.0]])
-            base_height_command = np.array([[0.9]]) * 2
+            base_height_command = np.array([[1.0]]) * 2
             lin_vel_command = np.array([[0.0, 0.0]])
             stand_command = np.array([[0]])  # default stand command
             cos_phase = np.array([[1.]])
@@ -498,7 +468,7 @@ class Controller:
         self.abs_history["gravity_orientation"].appendleft(torch.from_numpy(gravity_orientation).unsqueeze(0))
 
     def run(self):
-
+        start_time = time.perf_counter()
         self.counter += 1
 
         # Check mode switch
@@ -519,7 +489,7 @@ class Controller:
             interpolated_actions = self.get_body_interpolation()
             self.all_action[~mask] = interpolated_actions[~mask]
 
-        if self.current_mode=="mimic" and self.counter < 5:
+        if self.current_mode=="mimic" and self.counter < 10:
             self.old_action = self.old_action * 0.9 + self.all_action * 0.1
             self.all_action = self.old_action
 
@@ -532,7 +502,12 @@ class Controller:
         # send the command
         self.send_cmd(self.low_cmd)
 
-        time.sleep(self.config.control_dt)
+        end_time = time.perf_counter()
+        sleep_duration = max(0, self.config.control_dt - (end_time - start_time))
+        time.sleep(sleep_duration)
+
+        # end_log_time = time.perf_counter()
+        # print("run frequency: {:.2f} Hz".format(1.0 / (end_log_time - start_time)))
 
 @hydra.main(config_path="configs", config_name="g1_29", version_base="1.1")
 def main(cfg: OmegaConf):
