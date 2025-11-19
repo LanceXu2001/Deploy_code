@@ -74,7 +74,8 @@ locomotion:
   num_obs: 100
 
 mimic:
-  policy_path: "../PBHC/logs/MotionTracking/walk/exported/model_30000.onnx"
+  # policy_path: "../PBHC/logs/MotionTracking/walk/exported/model_30000.onnx"
+  policy_path: "../PBHC/logs/MotionTracking/walk2/exported/model_35000.onnx"
   motion_file: "../PBHC/smpl_retarget/retargeted_motion_data/mink/walk.pkl"
   # policy_path: "../PBHC/logs/MotionTracking/shakehand3/exported/model_50000.onnx"
   # motion_file: "../PBHC/smpl_retarget/retargeted_motion_data/mink/shakehand.pkl"
@@ -83,18 +84,17 @@ mimic:
                    0.0,  0.0, 0.0,
                    0.2,  0.2, 0.0, 0.6, 0.0, 0.0, 0.0, 
                    0.2, -0.2, 0.0, 0.6, 0.0, 0.0, 0.0 ]
-  # default_angles: [-0.1,  0.0,  0.0,  0.3, -0.2, 0.0, 
-  #                -0.1,  0.0,  0.0,  0.3, -0.2, 0.0,
-  #                 0.0,  0.0,  0.0,
-  #                 0.2, 0.2, 0.0, 0.9, 0.0, 0.0, 0.0, 
-  #                 0.2, -0.2, 0.0, 0.9, 0.0, 0.0, 0.0
-  #               ]
 
-  init_pos: [-0.03, 0.07, 0.10, 0.15, -0.02, 0.0,
-             -0.20, 0.04, 0.13, 0.35, -0.03, 0.0,
-              0.09, 0.03, 0.07,
-              0.07, 0.23,-0.05, 0.58, 0.0, 0.0, 0.0,  
-              0.11,-0.17,  0.0, 0.60, 0.0, 0.0, 0.0]
+  init_pos: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+             0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+             0.08, 0.02, 0.02,
+             0.29, 0.18,-0.07, 0.62, 0.0, 0.0, 0.0,  
+             0.29,-0.22,-0.04, 0.60, 0.0, 0.0, 0.0]
+  # init_pos: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, #only interpolate upper body
+  #            0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+  #            0.03, 0.01, 0.00,
+  #            0.16, 0.27, 0.03, 0.45, 0.0, 0.0, 0.0,  
+  #            0.23,-0.21,-0.02, 0.64, 0.0, 0.0, 0.0]
 
               
   kps: [100, 100, 100, 150, 40, 40, 
