@@ -74,11 +74,12 @@ locomotion:
   num_obs: 100
 
 mimic:
-  # policy_path: "../PBHC/logs/MotionTracking/walk/exported/model_30000.onnx"
-  policy_path: "../PBHC/logs/MotionTracking/walk2/exported/model_35000.onnx"
-  motion_file: "../PBHC/smpl_retarget/retargeted_motion_data/mink/walk.pkl"
+  # policy_path: "../PBHC/logs/MotionTracking/walk2/exported/model_35000.onnx"
+  # motion_file: "../PBHC/smpl_retarget/retargeted_motion_data/mink/walk.pkl"
   # policy_path: "../PBHC/logs/MotionTracking/shakehand3/exported/model_50000.onnx"
   # motion_file: "../PBHC/smpl_retarget/retargeted_motion_data/mink/shakehand.pkl"
+  policy_path: "policy/walk_sgw.onnx"
+  motion_file: "motion/walk_sgw.pkl"
   default_angles: [-0.312, 0.0, 0.0, 0.669, -0.33, 0.0,
                    -0.312, 0.0, 0.0, 0.669, -0.33, 0.0,
                    0.0,  0.0, 0.0,
