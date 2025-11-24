@@ -1,10 +1,9 @@
 import joblib
 import torch
 import numpy as np
-from typing import Dict, Tuple, List, Optional
-from scipy.spatial.transform import Rotation as R
-from pathlib import Path
-import mujoco
+from typing import Dict, Tuple, List
+# from scipy.spatial.transform import Rotation as R
+# from pathlib import Path
 import re
 from common.rotation_helper import (
     quat_inverse, quat_mul, quat_apply, calc_heading_quat, slerp,
@@ -368,161 +367,99 @@ def interpolate_motion_at_times(
     num_bodies: int = 27,
 ) -> Dict[str, np.ndarray]:
     """
-    在指定时间点对motion数据进行插值
-    
-    Args:
-        motion_data: 从 load_pkl_motion 加载的数据
-        motion_times: 时间点数组 [num_steps]
-        num_dofs: 关节数量
-        num_bodies: 总body数量
-    
-    Returns:
-        包含插值结果的字典:
-            - root_pos: [num_steps, 3]
-            - root_rot: [num_steps, 4] (xyzw)
-            - root_vel_world: [num_steps, 3]
-            - root_ang_vel_world: [num_steps, 3]
-            - dof_pos: [num_steps, num_dofs]
-            - ref_body_pos: [num_steps, num_bodies_actual, 3]
-            - ref_body_rot: [num_steps, num_bodies_actual, 4]
+    向量化版本的插值函数（大幅加速）
     """
+    import numpy as np
+    
     # 提取motion数据
     dof = motion_data['dof']  # [num_frames, num_dofs]
     root_trans = motion_data['root_trans_offset']  # [num_frames, 3]
-    root_rot = motion_data['root_rot']  # [num_frames, 4] (xyzw格式)
+    root_rot = motion_data['root_rot']  # [num_frames, 4]
     fps = motion_data.get('fps', 30)
-    root_vel_global = motion_data['root_vel_global'].squeeze(0)  # [num_frames, 3]
-    root_vel_global = root_vel_global.squeeze(1).numpy()
-    root_ang_vel_global = motion_data['root_ang_vel_global'].squeeze(0)  # [num_frames, 3]
-    root_ang_vel_global = root_ang_vel_global.squeeze(1).numpy()
-    # 计算motion长度和帧数
+    root_vel_global = motion_data['root_vel_global'].squeeze().numpy()
+    root_ang_vel_global = motion_data['root_ang_vel_global'].squeeze().numpy()
+    
     num_frames = len(dof)
     motion_dt = 1.0 / fps
     motion_length = num_frames * motion_dt
+    num_steps = len(motion_times)
     
-    # 获取extended body数据（如果有）
-    # 优先检查是否已经有预计算的pose_quat_global（可能在初始化阶段通过FK计算得到）
+    # 批量处理所有时间步
+    motion_times = np.clip(motion_times, 0, motion_length)
+    phase = motion_times / motion_length
+    phase = np.clip(phase, 0.0, 1.0)
+    
+    # 批量计算帧索引
+    frame_idx0 = (phase * (num_frames - 1)).astype(np.int32)  # [num_steps]
+    frame_idx1 = np.minimum(frame_idx0 + 1, num_frames - 1)  # [num_steps]
+    
+    # 批量计算 blend 系数
+    blend = np.clip((motion_times - frame_idx0 * motion_dt) / motion_dt, 0.0, 1.0)
+    blend = blend[:, np.newaxis]  # [num_steps, 1]
+    
+    # 批量索引和插值（向量化）
+    # Root 位置
+    root_pos0 = root_trans[frame_idx0]  # [num_steps, 3]
+    root_pos1 = root_trans[frame_idx1]  # [num_steps, 3]
+    root_pos = (1.0 - blend) * root_pos0 + blend * root_pos1  # [num_steps, 3]
+    
+    # Root 旋转（批量 slerp）
+    root_rot0 = root_rot[frame_idx0]  # [num_steps, 4]
+    root_rot1 = root_rot[frame_idx1]  # [num_steps, 4]
+    root_rot = batch_quat_slerp_numpy(root_rot0, root_rot1, blend.squeeze())  # [num_steps, 4]
+    
+    # Root 速度
+    root_vel0 = root_vel_global[frame_idx0]  # [num_steps, 3]
+    root_vel1 = root_vel_global[frame_idx1]  # [num_steps, 3]
+    root_vel_world = (1.0 - blend) * root_vel0 + blend * root_vel1  # [num_steps, 3]
+    
+    # Root 角速度
+    root_ang_vel0 = root_ang_vel_global[frame_idx0]  # [num_steps, 3]
+    root_ang_vel1 = root_ang_vel_global[frame_idx1]  # [num_steps, 3]
+    root_ang_vel_world = (1.0 - blend) * root_ang_vel0 + blend * root_ang_vel1  # [num_steps, 3]
+    
+    # DOF 位置
+    dof_pos0 = dof[frame_idx0]  # [num_steps, num_dofs]
+    dof_pos1 = dof[frame_idx1]  # [num_steps, num_dofs]
+    dof_pos = (1.0 - blend) * dof_pos0 + blend * dof_pos1  # [num_steps, num_dofs]
+    
+    # 处理 extended body 数据
     has_extended_bodies = 'pose_quat_global' in motion_data
     if has_extended_bodies:
-        pose_quat_global = motion_data['pose_quat_global'].numpy().squeeze(0)  # [num_frames, num_bodies, 4]
-        # pose_trans_global = motion_data.get('pose_trans_global', 
-        #     np.zeros((num_frames, pose_quat_global.shape[1], 3)))
-        pose_trans_global = motion_data['pose_trans_global'].numpy().squeeze(0)
+        pose_quat_global = motion_data['pose_quat_global'].squeeze().numpy()
+        pose_trans_global = motion_data['pose_trans_global'].squeeze().numpy()
         num_bodies_actual = pose_quat_global.shape[1]
         
-        # 如果文件中的body数量少于期望的num_bodies，需要扩展
+        # 批量索引 body 数据
+        ref_body_pos0 = pose_trans_global[frame_idx0]  # [num_steps, num_bodies, 3]
+        ref_body_pos1 = pose_trans_global[frame_idx1]  # [num_steps, num_bodies, 3]
+        ref_body_pos = (1.0 - blend[:, :, np.newaxis]) * ref_body_pos0 + blend[:, :, np.newaxis] * ref_body_pos1  # [num_steps, num_bodies, 3]
+        
+        # 批量四元数 slerp（关键优化！）
+        ref_body_rot0 = pose_quat_global[frame_idx0]  # [num_steps, num_bodies, 4]
+        ref_body_rot1 = pose_quat_global[frame_idx1]  # [num_steps, num_bodies, 4]
+        ref_body_rot = batch_quat_slerp_numpy(ref_body_rot0, ref_body_rot1, blend.squeeze()[:, np.newaxis])  # [num_steps, num_bodies, 4]
+        
+        # 扩展处理（如果需要）
         if num_bodies_actual < num_bodies:
-            pose_trans_global_extend = np.zeros((num_frames, num_bodies, 3))
-            pose_quat_global_extend = np.zeros((num_frames, num_bodies, 4))
-            pose_trans_global_extend[:, :num_bodies_actual] = pose_trans_global
-            pose_quat_global_extend[:, :num_bodies_actual] = pose_quat_global
+            ref_body_pos_extend = np.zeros((num_steps, num_bodies, 3))
+            ref_body_rot_extend = np.zeros((num_steps, num_bodies, 4))
+            ref_body_pos_extend[:, :num_bodies_actual, :] = ref_body_pos
+            ref_body_rot_extend[:, :num_bodies_actual, :] = ref_body_rot
             if num_bodies_actual > 0:
-                pose_trans_global_extend[:, num_bodies_actual:] = pose_trans_global[:, -1:, :]
-                pose_quat_global_extend[:, num_bodies_actual:] = pose_quat_global[:, -1:, :]
-            pose_trans_global = pose_trans_global_extend
-            pose_quat_global = pose_quat_global_extend
+                ref_body_pos_extend[:, num_bodies_actual:, :] = ref_body_pos[:, -1:, :]
+                ref_body_rot_extend[:, num_bodies_actual:, :] = ref_body_rot[:, -1:, :]
+            ref_body_pos = ref_body_pos_extend
+            ref_body_rot = ref_body_rot_extend
             num_bodies_actual = num_bodies
         elif num_bodies_actual > num_bodies:
-            pose_trans_global = pose_trans_global[:, :num_bodies, :]
-            pose_quat_global = pose_quat_global[:, :num_bodies, :]
+            ref_body_pos = ref_body_pos[:, :num_bodies, :]
+            ref_body_rot = ref_body_rot[:, :num_bodies, :]
             num_bodies_actual = num_bodies
-    elif 'pose_aa' in motion_data:
-        # 如果motion_data中已经有计算好的pose_trans_global和pose_quat_global，直接使用
-        if 'pose_trans_global' in motion_data and 'pose_quat_global' in motion_data:
-            pose_trans_global = motion_data['pose_trans_global']  # [num_frames, num_bodies, 3]
-            pose_quat_global = motion_data['pose_quat_global']  # [num_frames, num_bodies, 4]
-            num_bodies_actual = pose_quat_global.shape[1]
-            
-            # 如果body数量与期望不符，进行调整
-            if num_bodies_actual < num_bodies:
-                pose_trans_global_extend = np.zeros((num_frames, num_bodies, 3))
-                pose_quat_global_extend = np.zeros((num_frames, num_bodies, 4))
-                pose_trans_global_extend[:, :num_bodies_actual] = pose_trans_global
-                pose_quat_global_extend[:, :num_bodies_actual] = pose_quat_global
-                if num_bodies_actual > 0:
-                    pose_trans_global_extend[:, num_bodies_actual:] = pose_trans_global[:, -1:, :]
-                    pose_quat_global_extend[:, num_bodies_actual:] = pose_quat_global[:, -1:, :]
-                pose_trans_global = pose_trans_global_extend
-                pose_quat_global = pose_quat_global_extend
-                num_bodies_actual = num_bodies
-            elif num_bodies_actual > num_bodies:
-                pose_trans_global = pose_trans_global[:, :num_bodies, :]
-                pose_quat_global = pose_quat_global[:, :num_bodies, :]
-                num_bodies_actual = num_bodies
-    
-    # 对每个时间步进行插值
-    root_pos_list = []
-    root_rot_list = []
-    root_vel_list = []
-    root_ang_vel_list = []
-    dof_pos_list = []
-    ref_body_pos_list = []
-    ref_body_rot_list = []
-    
-    for t in motion_times:
-        # 限制时间在motion范围内
-        t = np.clip(t, 0, motion_length)
-        
-        # 计算帧索引和插值系数
-        phase = t / motion_length
-        phase = np.clip(phase, 0.0, 1.0)
-        frame_idx0 = int(phase * (num_frames - 1))
-        frame_idx1 = min(frame_idx0 + 1, num_frames - 1)
-        
-        if frame_idx0 == frame_idx1:
-            blend = 0.0
-        else:
-            blend = np.clip((t - frame_idx0 * motion_dt) / motion_dt, 0.0, 1.0)
-        
-        # 插值root位置
-        root_pos0 = root_trans[frame_idx0]
-        root_pos1 = root_trans[frame_idx1]
-        root_pos = (1.0 - blend) * root_pos0 + blend * root_pos1
-        root_pos_list.append(root_pos)
-        
-        # 插值root旋转（四元数slerp）
-        root_rot0 = root_rot[frame_idx0]
-        root_rot1 = root_rot[frame_idx1]
-        root_rot_interp = quat_slerp(root_rot0, root_rot1, blend)
-        root_rot_list.append(root_rot_interp)
-        
-        root_vel0 = root_vel_global[frame_idx0]
-        root_vel1 = root_vel_global[frame_idx1]
-        root_vel = (1.0 - blend) * root_vel0 + blend * root_vel1
-        root_vel_list.append(root_vel)
-        
-        root_ang_vel0 = root_ang_vel_global[frame_idx0]
-        root_ang_vel1 = root_ang_vel_global[frame_idx1]
-        root_ang_vel = (1.0 - blend) * root_ang_vel0 + blend * root_ang_vel1
-        root_ang_vel_list.append(root_ang_vel)
-        
-        # 插值dof位置
-        dof_pos0 = dof[frame_idx0]
-        dof_pos1 = dof[frame_idx1]
-        dof_pos = (1.0 - blend) * dof_pos0 + blend * dof_pos1
-        dof_pos_list.append(dof_pos)
-        
-        # 插值body位置和旋转
-        ref_body_pos0 = pose_trans_global[frame_idx0]  # [num_bodies_actual, 3]
-        ref_body_pos1 = pose_trans_global[frame_idx1]  # [num_bodies_actual, 3]
-        ref_body_pos = (1.0 - blend) * ref_body_pos0 + blend * ref_body_pos1  # [num_bodies_actual, 3]
-        ref_body_pos_list.append(ref_body_pos)
-        
-        ref_body_rot0 = pose_quat_global[frame_idx0]  # [num_bodies_actual, 4]
-        ref_body_rot1 = pose_quat_global[frame_idx1]  # [num_bodies_actual, 4]
-        # 对每个body的旋转进行slerp
-        ref_body_rot = np.array([quat_slerp(np.array(ref_body_rot0[i]), np.array(ref_body_rot1[i]), blend) 
-                            for i in range(len(ref_body_rot0))])  # [num_bodies_actual, 4]
-        ref_body_rot_list.append(ref_body_rot)
-    
-    # 转换为numpy数组
-    root_pos = np.array(root_pos_list)  # [num_steps, 3]
-    root_rot = np.array(root_rot_list)  # [num_steps, 4]
-    root_vel_world = np.array(root_vel_list)  # [num_steps, 3]
-    root_ang_vel_world = np.array(root_ang_vel_list)  # [num_steps, 3]
-    dof_pos = np.array(dof_pos_list)  # [num_steps, num_dofs]
-    ref_body_pos = np.array(ref_body_pos_list)  # [num_steps, num_bodies_actual, 3]
-    ref_body_rot = np.array(ref_body_rot_list)  # [num_steps, num_bodies_actual, 4]
+    else:
+        ref_body_pos = np.zeros((num_steps, num_bodies, 3))
+        ref_body_rot = np.zeros((num_steps, num_bodies, 4))
+        num_bodies_actual = num_bodies
     
     return {
         "root_pos": root_pos,
@@ -534,6 +471,65 @@ def interpolate_motion_at_times(
         "ref_body_rot": ref_body_rot,
         "num_bodies_actual": num_bodies_actual
     }
+
+def batch_quat_slerp_numpy(q0: np.ndarray, q1: np.ndarray, t: np.ndarray) -> np.ndarray:
+    """
+    批量四元数球面线性插值（向量化版本）
+    
+    Args:
+        q0: 起始四元数 [..., 4] (xyzw)
+        q1: 结束四元数 [..., 4] (xyzw)
+        t: 插值系数 [..., 1] 或 [...,]
+    
+    Returns:
+        插值后的四元数 [..., 4] (xyzw)
+    """
+    t = np.asarray(t)
+    
+    # 确保 t 的形状：如果 t 是 [20]，q0 是 [20, 4]，则 t 应该保持为 [20]
+    # 但在计算时需要与 [..., 1] 形状的中间结果广播
+    
+    # 计算点积
+    cos_half_theta = np.sum(q0 * q1, axis=-1, keepdims=True)  # [..., 1]
+    
+    # 如果点积为负，取反
+    mask = cos_half_theta < 0
+    q1_corrected = np.where(mask, -q1, q1)
+    cos_half_theta = np.abs(cos_half_theta)
+    cos_half_theta = np.clip(cos_half_theta, -1.0, 1.0)
+    
+    # 如果两个四元数几乎相同，直接线性插值
+    mask_same = cos_half_theta >= 1.0
+    half_theta = np.arccos(cos_half_theta)  # [..., 1]
+    sin_half_theta = np.sqrt(1.0 - cos_half_theta * cos_half_theta)  # [..., 1]
+    
+    # 如果 sin 太小，使用线性插值
+    mask_linear = sin_half_theta < 0.001
+    
+    # 关键修复：确保 t 的形状与 half_theta 匹配
+    # 如果 t 是 [20]，half_theta 是 [20, 1]，需要将 t 扩展为 [20, 1]
+    if t.ndim == 0:
+        # 标量
+        t_expanded = t
+    elif t.ndim == q0.ndim - 1:
+        # t 是 [20]，q0 是 [20, 4]，需要扩展为 [20, 1]
+        t_expanded = np.expand_dims(t, axis=-1)  # [20, 1]
+    else:
+        # t 已经是 [20, 1] 或更高维度
+        t_expanded = t
+    
+    # 计算 slerp
+    ratioA = np.sin((1.0 - t_expanded) * half_theta) / sin_half_theta  # [..., 1]
+    ratioB = np.sin(t_expanded * half_theta) / sin_half_theta  # [..., 1]
+    
+    # 广播：ratioA [..., 1] * q0 [..., 4] -> [..., 4]
+    new_q = ratioA * q0 + ratioB * q1_corrected
+    
+    # 处理特殊情况
+    new_q = np.where(mask_same, q0, new_q)
+    new_q = np.where(mask_linear, (1.0 - t_expanded) * q0 + t_expanded * q1_corrected, new_q)
+    
+    return new_q
 
 def compute_local_key_body_positions(
     ref_body_pos: np.ndarray,

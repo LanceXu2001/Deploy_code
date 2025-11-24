@@ -34,7 +34,7 @@ kds: [2, 2, 2, 4, 2, 2,
 
 
 locomotion:
-  policy_path: "../PBHC/logs/loco_model/model_6600.onnx"
+  policy_path: "policy/loco_model.onnx"
   default_angles: [-0.1, 0.0, 0.0, 0.3, -0.2, 0.0,
                    -0.1, 0.0, 0.0, 0.3, -0.2, 0.0,
                     0.0, 0.0, 0.0,

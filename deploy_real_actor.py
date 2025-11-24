@@ -447,6 +447,7 @@ class Controller:
                     base_yaw_vel(1) + dof_pos(23) + key_body_pos(27) = 57维
         """
         # 1. 计算未来时间步
+        start_time = time.perf_counter()
         tar_obs_steps = np.linspace(1, future_max_steps, future_num_steps, dtype=np.int64)
         obs_motion_times = tar_obs_steps * dt + current_motion_time
         
@@ -462,7 +463,8 @@ class Controller:
         ref_body_pos = interpolated_data["ref_body_pos"]  # [num_steps, num_bodies_actual, 3]
         ref_body_rot = interpolated_data["ref_body_rot"]  # [num_steps, num_bodies_actual, 4]
         num_steps = root_pos.shape[0]
-        
+        t1 = time.perf_counter()
+
         # 3. 计算roll_pitch
         rpy = np.array([get_euler_xyz(q) for q in root_rot])  # [num_steps, 3]
         roll_pitch = rpy[:, :2]  # [num_steps, 2]
@@ -474,12 +476,12 @@ class Controller:
                                 for i in range(num_steps)])  # [num_steps, 3]
         root_ang_vel_local = np.array([quat_rotate_inverse_np(root_rot[i], root_ang_vel_world[i]) 
                                     for i in range(num_steps)])  # [num_steps, 3]
-        
+        t2 = time.perf_counter()
         # 5. 计算关键body的局部位置（相对于anchor）
         local_ref_key_body_pos = compute_local_key_body_positions(
             ref_body_pos, ref_body_rot, anchor_index, key_body_id, num_bodies
         )  # [num_steps, key_bodies*3]
-        
+        t3 = time.perf_counter()
         # 6. 组装 future_motion_targets
         future_motion_root_height = root_pos[:, 2:3]  # [num_steps, 1]
         future_motion_roll_pitch = roll_pitch  # [num_steps, 2]
@@ -527,7 +529,9 @@ class Controller:
         if device == 'cuda':
             future_motion_targets = future_motion_targets.cuda()
             next_step_ref_motion = next_step_ref_motion.cuda()
-        
+        print("interpolate time:", t1 - start_time)
+        # print("rotation time:", t2 - t1)
+        # print("compute local pos time:", t3 - t2)
         return future_motion_targets, next_step_ref_motion
 
     def get_obs(self):
@@ -621,8 +625,6 @@ class Controller:
                 key_body_id=key_body_id,
                 anchor_index=0
             )
-            if self.counter <5:
-                print("anchor_ref_rot:", anchor_ref_rot.numpy())
 
             obs_hist = torch.cat([
                 action_hist_tensor, #23*4
@@ -740,7 +742,9 @@ class Controller:
         # Check mode switch
         self.check_mode_switch()
         # update obs
+        t1 = time.perf_counter()
         self.get_obs()
+        t2 = time.perf_counter()
 
         # Get policy's infered action
         input_names = [input.name for input in self.policy.get_inputs()]
@@ -763,6 +767,7 @@ class Controller:
 
         # 运行推理
         outputs = self.policy.run([output_name], inputs_dict)
+        t3 = time.perf_counter()
         action = outputs[0].squeeze()
 
         # Get interpolated actions during mode switch
@@ -788,6 +793,8 @@ class Controller:
         self.send_cmd(self.low_cmd)
 
         end_time = time.perf_counter()
+        # print("get_obs time percentage:", (t2 - t1) / (end_time - start_time))
+        # print("policy time percentage:", (t3 - t2) / (end_time - start_time))
         sleep_duration = max(0, self.config.control_dt - (end_time - start_time))
         time.sleep(sleep_duration)
 
