@@ -285,17 +285,6 @@ class Controller:
         policy_path = str(Path(get_original_cwd()) / self.mode_cfg.policy_path)
         self.policy = ort.InferenceSession(policy_path)
 
-        print(f"\n--- [Policy Details] for {self.current_mode} mode ---")
-        print(f"Model Path: {policy_path}")
-        inputs = self.policy.get_inputs()
-        print(f"Model expects {len(inputs)} input(s):")
-        for i, input_node in enumerate(inputs):
-            print(f"  Input #{i}:")
-            print(f"    Name: '{input_node.name}'")
-            print(f"    Shape: {input_node.shape}  <-- 这是期望的维度")
-            print(f"    Data Type: {input_node.type}")
-        print("--------------------------------------------------\n")
-
         self.action = np.zeros(self.mode_cfg.num_output_actions, dtype=np.float32)
         self.default_angles = np.array(list(self.mode_cfg.default_angles), dtype=np.float32)
         # self.init_history()
@@ -390,7 +379,7 @@ class Controller:
             ref_motion_phase = (self.counter * self.config.control_dt) / self.motion_len
 
             #after 95% of the motion, finish mimic
-            if ref_motion_phase >= 0.95:
+            if ref_motion_phase >= 0.8:
                 self.mimic_finish = True
 
             # put into observation buffer
