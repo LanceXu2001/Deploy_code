@@ -80,7 +80,8 @@ mimic:
   # motion_file: "../PBHC/smpl_retarget/retargeted_motion_data/mink/shakehand.pkl"
   # policy_path: "policy/walk_sgw.onnx"
   # motion_file: "motion/walk_sgw.pkl"
-  policy_path: "policy/walk_1128.onnx"
+  policy_path: "policy/walk_1128_v2.onnx"
+  # policy_path: "policy/walk_1129.onnx"
   motion_file: "motion/walk_1127.pkl"
   default_angles: [-0.312, 0.0, 0.0, 0.669, -0.33, 0.0,
                    -0.312, 0.0, 0.0, 0.669, -0.33, 0.0,
@@ -90,9 +91,9 @@ mimic:
 
   init_pos: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
              0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
-             0.08, 0.02, 0.02,
-             0.29, 0.18,-0.07, 0.62, 0.0, 0.0, 0.0,  
-             0.29,-0.22,-0.04, 0.60, 0.0, 0.0, 0.0]
+             0.00, 0.00, 0.00,
+             0.23, 0.22,-0.01, 0.66, 0.0, 0.0, 0.0,  
+             0.23,-0.22,-0.00, 0.66, 0.0, 0.0, 0.0]
   # init_pos: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, #only interpolate upper body
   #            0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
   #            0.03, 0.01, 0.00,
