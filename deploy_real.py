@@ -286,10 +286,17 @@ class Controller:
         self.policy = ort.InferenceSession(policy_path)
 
         self.action = np.zeros(self.mode_cfg.num_output_actions, dtype=np.float32)
+        
+        # 保存切换前的实际关节位置（绝对值），以保持连续性
+        old_target_pos = self.default_angles + self.all_action * self.config.action_scale
         self.default_angles = np.array(list(self.mode_cfg.default_angles), dtype=np.float32)
+        
         # self.init_history()
         self.is_transitioning = False
         self.counter = 0
+        
+        # 关键修复：计算基于新default_angles的相对action，保持关节位置连续
+        self.old_action = (old_target_pos - self.default_angles) / self.config.action_scale
     
     def get_body_interpolation(self):
         total_time = 2.0
@@ -379,7 +386,7 @@ class Controller:
             ref_motion_phase = (self.counter * self.config.control_dt) / self.motion_len
 
             #after 95% of the motion, finish mimic
-            if ref_motion_phase >= 0.8:
+            if ref_motion_phase >= 0.55:
                 self.mimic_finish = True
 
             # put into observation buffer
