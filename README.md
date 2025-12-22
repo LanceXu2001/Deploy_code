@@ -26,11 +26,11 @@ This repo is design for the final project of ROAS 6000H Human Centric Machine Pe
 ## Usage
 For sim2sim deployment:
 - Plugin a gamepad to your computer to further control the robot befor starting the simulator. Otherwise the simulator will report an error.
-- Activate the virtual env and start the simulator using
+- Activate the `unitree_mujoco` virtual env and start the simulator using
 ```
 python unitree_mujoco/simulate_python/unitree_mujoco.py
 ```
-- Start another terminal,activate the virtual env and start the deploy code using
+- Start another terminal,activate the `pbhc` virtual env and start the deploy code using
 ```
 python deploy_code/deploy_real.py
 ```
