@@ -1,7 +1,7 @@
 
 ## About
 
-This repo is designed for sim2sim and sim2real deploy for KungfuBot and KungfuBot2. The code is modify from [unitree_rl_gym](https://github.com/unitreerobotics/unitree_rl_gym). The training pipeline follows [KungfuBot](https://github.com/TeleHuman/PBHC).
+This repo is design for the final project of ROAS 6000H Human Centric Machine Perception and the code is designed for sim2sim and sim2real deploy of KungfuBot. The code is modify from [unitree_rl_gym](https://github.com/unitreerobotics/unitree_rl_gym). The training pipeline follows [KungfuBot](https://github.com/TeleHuman/PBHC).
 
 <!-- ## Sim2sim deploy video
 
@@ -12,10 +12,10 @@ This repo is designed for sim2sim and sim2real deploy for KungfuBot and KungfuBo
 
 - Refer to `INSTALL.md` in [KungfuBot](https://github.com/TeleHuman/PBHC) for environment setup and installation instructions.
 
-- Following the installation guidance to install python simulation [unitree_mujoco](https://github.com/unitreerobotics/unitree_mujoco). After installation, please change the robot type to g1.
+- Following the installation guidance to install python simulation [unitree_mujoco](https://github.com/unitreerobotics/unitree_mujoco). 
 
 - Since the original simulator will only update the simulation step after policy inference, which do not align with the real world deployment. Please change the following files for better sim2real transfer.
-    - Use `modified_mujoco/config.py` in our repo to override `unitree_mujoco/simulate_python/config.py`, which will adjust the `SIMULATE_DT` to simulate real world state update.
+    - Adjust `unitree_mujoco/simulate_python/config.py`, change `ROBOT_TYPE="g1"` and`SIMULATE_DT=0.002` to simulate real world state update.
     - Use `modified_mujoco/unitree_mujoco.py` in our repo to override `unitree_mujoco/simulate_python/unitree_mujoco.py`, which will add thread lock for simulating low level PD control.
     - Use `modified_mujoco/unitree_sdk2py_bridge.py` in our repo to override `unitree_mujoco/simulate_python/unitree_sdk2py_bridge.py`, which will simulate 500 Hz low level PD control.
     - Modified `unitree_mujoco/unitree_robots/g1/scence.xml` to remove obstacles. Specifically,comment out the lines in `<world body>` tag except
@@ -34,9 +34,9 @@ python unitree_mujoco/simulate_python/unitree_mujoco.py
 ```
 python deploy_code/deploy_real.py
 ```
-- After starting the controller, press `start` to get into `position control mode`. After that press `A` to get into `balance standing mode`. Press key `9` on the keyboard to realse the robot from the virtual elatic band. Then you can press `B` to get into `motion mimic mode`. **Please noticing that key `9` is on the keyboard, other keys are on gamepad.**
+- After starting the controller, press `start` to get into `position control mode`,the robot will not keep balance in this mode. After that press `A` to get into `balance standing mode`. Press key `9` on the keyboard to enforce/realse the robot from the virtual elatic band. Then you can press `B` to get into `motion mimic mode`. **Please noticing that key `9` is on the keyboard, other keys are on gamepad.**
 
-you can change corresponding `policy_path`,`motion_file` and `init_pos` in `configs/g1_29.yaml` to mimic different trained motion. Now `shakehand` and `walk_AMASS` motions are avaliable.
+you can change corresponding `policy_path`,`motion_file` and `init_pos` in `configs/g1_29.yaml` to mimic different trained motion. Now `shakehand` and `walk_AMASS` motions are avaliable. You can also try to play `walk_1127` and `walk_1201_edit_cont` which are some failure cases.
 
 For sim2real deploy:
 - Please follow [unitree_rl_gym](https://github.com/unitreerobotics/unitree_rl_gym) to setup the hardware.

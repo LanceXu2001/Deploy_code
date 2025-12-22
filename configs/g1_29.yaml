@@ -74,19 +74,30 @@ locomotion:
   num_obs: 100
 
 mimic:
-  # policy_path: "policy/shakehand_model.onnx"
-  # motion_file: "motion/shakehand.pkl"
-  policy_path: "policy/walk_1128_v2.onnx"
-  motion_file: "motion/walk_1127.pkl"
-  # policy_path: "policy/walk_1203.onnx"
-  # motion_file: "motion/walk_1201.pkl"
+  policy_path: "policy/shakehand_model.onnx"
+  motion_file: "motion/shakehand.pkl"
+
   # policy_path: "policy/walk_AMASS_1204.onnx"
   # motion_file: "motion/walk_AMASS.pkl"
+
+  # policy_path: "policy/walk_1128_v2.onnx" #lateral view retarget and in-toeing gait,sim2real fail
+  # motion_file: "motion/walk_1127.pkl"
+
+  # policy_path: "policy/walk_1209.onnx" # GMR retarget and jitter waist joint
+  # motion_file: "motion/walk_1201_edit_cont.pkl" 
+
+
   default_angles: [-0.312, 0.0, 0.0, 0.669, -0.33, 0.0,
                    -0.312, 0.0, 0.0, 0.669, -0.33, 0.0,
                    0.0,  0.0, 0.0,
                    0.2,  0.2, 0.0, 0.6, 0.0, 0.0, 0.0, 
                    0.2, -0.2, 0.0, 0.6, 0.0, 0.0, 0.0 ]
+
+  init_pos: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, #shakehand
+             0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+             0.03, 0.01, 0.00,
+             0.16, 0.27, 0.03, 0.45, 0.0, 0.0, 0.0,  
+             0.23,-0.21,-0.02, 0.64, 0.0, 0.0, 0.0]
 
   # init_pos: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, #walk_AMASS
   #            0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
@@ -94,16 +105,11 @@ mimic:
   #            0.04, 0.04, 0.00, 0.6, 0.0, 0.0, 0.0,  
   #            0.04,-0.04, 0.00, 0.6, 0.0, 0.0, 0.0]
 
-  init_pos: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, #walk_1127
-             0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
-             0.00, 0.00, 0.00,
-             0.23, 0.22,-0.01, 0.66, 0.0, 0.0, 0.0,  
-             0.23,-0.22,-0.00, 0.66, 0.0, 0.0, 0.0]
-  # init_pos: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, #shakehand
+  # init_pos: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, # walk_1127 & walk_1201_edit_cont
   #            0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
-  #            0.03, 0.01, 0.00,
-  #            0.16, 0.27, 0.03, 0.45, 0.0, 0.0, 0.0,  
-  #            0.23,-0.21,-0.02, 0.64, 0.0, 0.0, 0.0]
+  #            0.00, 0.00, 0.00,
+  #            0.23, 0.22,-0.01, 0.66, 0.0, 0.0, 0.0,  
+  #            0.23,-0.22,-0.00, 0.66, 0.0, 0.0, 0.0]
 
               
   kps: [100, 100, 100, 150, 40, 40, 
