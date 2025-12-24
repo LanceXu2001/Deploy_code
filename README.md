@@ -10,9 +10,9 @@ This repo is design for the final project of ROAS 6000H Human Centric Machine Pe
 
 ## Installation
 
-- Refer to `INSTALL.md` in [KungfuBot](https://github.com/TeleHuman/PBHC) for environment setup and installation instructions.
+- Creat a virtual env and install KungfuBot. Refer to `INSTALL.md` in [KungfuBot](https://github.com/TeleHuman/PBHC) for environment setup and installation instructions. Since deploy code would import torch and other dependency embedded in isaacgym, so please **do not** skip installing isaacgym.
 
-- Following the installation guidance to install python simulation [unitree_mujoco](https://github.com/unitreerobotics/unitree_mujoco). 
+- Following the installation guidance to install python simulation [unitree_mujoco](https://github.com/unitreerobotics/unitree_mujoco) in the same env. 
 
 - Since the original simulator will only update the simulation step after policy inference, which do not align with the real world deployment. Please change the following files for better sim2real transfer.
     - Adjust `unitree_mujoco/simulate_python/config.py`, change `ROBOT_TYPE="g1"` and`SIMULATE_DT=0.002` to simulate real world state update.
@@ -26,11 +26,11 @@ This repo is design for the final project of ROAS 6000H Human Centric Machine Pe
 ## Usage
 For sim2sim deployment:
 - Plugin a gamepad to your computer to further control the robot befor starting the simulator. Otherwise the simulator will report an error.
-- Activate the `unitree_mujoco` virtual env and start the simulator using
+- Activate the virtual env and start the simulator using
 ```
 python unitree_mujoco/simulate_python/unitree_mujoco.py
 ```
-- Start another terminal,activate the `pbhc` virtual env and start the deploy code using
+- Start another terminal,activate the virtual env and start the deploy code using
 ```
 python deploy_code/deploy_real.py
 ```
